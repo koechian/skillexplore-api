@@ -15,17 +15,22 @@ def cleaner():
 
 @app.route("/resume", methods=["POST"])
 def uploadedResume():
-    if "file" not in request.args:
-        return "No file found"
+    if "file" not in request.files:
+        return "No file present"
+
     file = request.files["file"]
 
-    if not os.path.exists(app.config["UPLOAD_FOLDER"]):
-        os.makedirs(app.config["UPLOAD_FOLDER"])
+    if file.filename == "":
+        return "Empty Filename"
+
+    if file:
+        # Create the upload folder if it doesn't exist
+        if not os.path.exists(app.config["UPLOAD_FOLDER"]):
+            os.makedirs(app.config["UPLOAD_FOLDER"])
+
         file.save(os.path.join(app.config["UPLOAD_FOLDER"], file.filename))
 
         return "File uploaded successfully!"
-
-    return "default, shits wrong"
 
 
 if __name__ == "__main__":
