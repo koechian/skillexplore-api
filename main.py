@@ -1,13 +1,21 @@
 from flask import Blueprint, request
 import os
 import PyPDF2
-import psycopg2
 from dotenv import load_dotenv
+import json
+import pymysql
 
 main = Blueprint("main", __name__)
 load_dotenv()
+
 UPLOAD_FOLDER = "uploads"
-url = os.getenv("DATABASE_URL")
+
+urls = os.getenv("DATABASE")
+keys = os.getenv("KEYS")
+
+# Create connection to postgres
+# Connect to the database
+connection = pymysql.connect(host="127.0.0.1", port=3306)
 
 
 def cleaner():
@@ -52,24 +60,57 @@ def resumeParser(resume):
 
 @main.post("/scraped")
 def scraped_to_db():
+    # try:
     jsonData = request.get_json()
-    return jsonData
+    jsonData = json.loads(jsonData)
+    # print("Recieved JSON Data:", jsonData)
+
+    # print(len(jsonData.values()))
+
+    for item in jsonData.values():
+        title = item["title"]
+        description = item["description"]
+        location = item["location"]
+        url = item["url"]
+        nature = item["nature"]
+
+        # print(index)
+        scrapedtoDatabase(title, nature, description, location, url)
+    return "printed"
+    # except Exception as e:
+    #     print("Error Message:", e)
+
+    # return "meh"
 
 
-def connect(status):
-    if status:
-        connection = psycopg2.connect(url)
-        return connection
+def purgeScraped():
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(CLEAR_SCRAPED)
+    except Exception as e:
+        return ("Purge failed: ", e), 401
+
+    return " Purge Completed", 201
 
 
-def toDatabase():
-    # connect to db
-    connection = connect(True)
+def scrapedtoDatabase(title, nature, description, location, url):
+    # write to db
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(CREATE_SCRAPED_TABLE)
+            cursor.execute(INSERT_SCRAPED, (title, nature, description, location, url))
+        connection.commit()
+    except Exception as e:
+        print(e)
 
+
+def getPreds():
     pass
 
 
-# DEFINE SQL STATEMENTS
-CREATE_SCRAPED_TABLE = "CREATE TABLE IF NOT EXISTS scraped(id SERIAL PRIMARY KEY, title TEXT, nature TEXT, description TEXT, location TEXT, url TEXT)"
+# SQL STATEMENTS DEFINITIONS
+CREATE_SCRAPED_TABLE = "CREATE TABLE IF NOT EXISTS `scraped`(`id` SERIAL PRIMARY KEY, `title` TEXT, `nature` TEXT, `description` TEXT, `location` TEXT, `url` TEXT, `pred` BOOL)"
 
-INSERT_SCRAPED = "INSERT INTO scraped(title, nature, description, location, url) VALUES (%s,%s,%s,%s,%s) "
+INSERT_SCRAPED = "INSERT INTO `scraped`(`title`, `nature`, `description`, `location`, `url`, `pred`) VALUES (%s, %s, %s, %s, %s, FALSE) "
+
+CLEAR_SCRAPED = "DELETE FROM scraped"
