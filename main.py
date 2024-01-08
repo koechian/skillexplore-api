@@ -1,24 +1,17 @@
-from time import sleep
 from flask import Blueprint, request
 import os
 import PyPDF2
-from dotenv import load_dotenv
 import json
 import pymysql
 import ast
+import pandas as pd
 
 from .Classes.inference import Predictions
 
-# print(os.getcwd())
-
 
 main = Blueprint("main", __name__)
-load_dotenv()
 
 UPLOAD_FOLDER = "uploads"
-
-urls = os.getenv("DATABASE")
-kaggle = os.getenv("KAGGLE_KEY")
 
 # Create connection to postgres
 # Connect to the database
@@ -219,9 +212,83 @@ def getGeneralLocations():
 def getGeneralEducation():
     with connection.cursor() as cursor:
         cursor.execute(FETCH_EDUCATION_STATS)
-        locations = cursor.fetchall()
+        levels = cursor.fetchall()
 
-    return json.dumps(locations), 201
+    return json.dumps(levels[:6]), 201
+
+
+@main.get("/getGeneralSkills")
+def skillsAnalysis():
+    with connection.cursor() as cursor:
+        cursor.execute(MOST_WANTED_SKILLS)
+        skills = cursor.fetchall()
+
+        df = pd.DataFrame(skills, columns=["skills"])
+
+        # Split comma-separated skills and create a list of skills
+        skills_list = [
+            skill.strip().lower()
+            for skills in df["skills"].str.split(",")
+            for skill in skills
+        ]
+
+        # Create a DataFrame to store the counts
+        skills_counts = pd.DataFrame(skills_list, columns=["skill"])
+        skills_counts["count"] = 1
+
+        # Perform the analysis, for example, get the top 10 skills
+        top_skills = (
+            skills_counts.groupby("skill")
+            .count()
+            .sort_values(by="count", ascending=False)
+            .head(14)
+        )
+        data = {
+            "skills_info": top_skills.to_dict(),
+            "total_count": skills_counts["skill"].nunique(),
+        }
+
+    return json.dumps(data), 201
+
+
+@main.get("/skillsByDomain")
+def skillsPerDomain():
+    domain = request.get_json()
+
+    print(domain)
+
+    query = f"""SELECT skills FROM predicted WHERE domain = '{domain["domain"]}';"""
+
+    with connection.cursor() as cursor:
+        cursor.execute(query)
+        skills = cursor.fetchall()
+
+        df = pd.DataFrame(skills, columns=["skills"])
+
+        # Split comma-separated skills and create a list of skills
+        skills_list = [
+            skill.strip().lower()
+            for skills in df["skills"].str.split(",")
+            for skill in skills
+        ]
+
+        # Create a DataFrame to store the counts
+        skills_counts = pd.DataFrame(skills_list, columns=["skill"])
+        skills_counts["count"] = 1
+
+        # Perform the analysis, for example, get the top 10 skills
+        top_skills = (
+            skills_counts.groupby("skill")
+            .count()
+            .sort_values(by="count", ascending=False)
+            .head(14)
+        )
+        data = {
+            "skills_info": top_skills.to_dict(),
+            "total_count": skills_counts["skill"].nunique(),
+        }
+
+    return json.dumps(data), 201
 
 
 # SQL STATEMENTS DEFINITIONS
@@ -248,3 +315,12 @@ FETCH_ALL_DOMAINS = "SELECT * FROM domains"
 FETCH_LOCATION_STATS = (
     "SELECT location, COUNT(*) AS loc_count FROM scraped GROUP BY location;"
 )
+FETCH_EDUCATION_STATS = "SELECT education_level, COUNT(*) AS ed_count FROM predicted GROUP BY education_level ORDER BY ed_count DESC;"
+
+FETCH_ROLES_STATS = "SELECT roles, COUNT(*) AS role_count FROM predicted GROUP BY role ORDER BY role DESC;"
+
+# fetch all skills from the predicted table
+MOST_WANTED_SKILLS = "SELECT skills FROM predicted"
+
+
+MOST_WANTED_SKILLS_BY_DOMAIN = "SELECT skills FROM predicted WHERE domain"
