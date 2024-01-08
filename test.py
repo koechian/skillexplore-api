@@ -1,7 +1,10 @@
 from dotenv import load_dotenv
 import os
+import ast
 
+data = "{'a': 1, 'b: 2,}"
 
-load_dotenv()
-
-print(os.getenv("DATABASE"))
+try:
+    dict = ast.literal_eval(data)
+except Exception as e:
+    print(e)
