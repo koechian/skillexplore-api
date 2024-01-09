@@ -15,7 +15,16 @@ UPLOAD_FOLDER = "uploads"
 
 # Create connection to postgres
 # Connect to the database
-connection = pymysql.connect(host="127.0.0.1", port=3306)
+
+
+# @main.after_request
+# def add_cors_headers(response):
+#     response.headers.add("Access-Control-Allow-Origin", "http://localhost:1000")
+#     return response
+
+
+def createConnection():
+    return pymysql.connect(host="127.0.0.1", port=3306)
 
 
 def cleaner():
@@ -24,7 +33,7 @@ def cleaner():
         os.remove("uploads/" + file)
 
 
-@main.route("/resume", methods=["POST"])
+@main.post("/resume")
 def uploadedResume():
     if "file" not in request.files:
         return "No file present"
@@ -84,22 +93,25 @@ def scraped_to_db():
 
 
 def purgeScraped():
+    conn = createConnection()
+    cursor = conn.cursor()
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(CLEAR_SCRAPED)
+        cursor.execute(CLEAR_SCRAPED)
     except Exception as e:
         return ("Purge failed: ", e), 401
+    finally:
+        conn.close()
 
     return " Purge Completed", 201
 
 
 def scrapedtoDatabase(title, nature, description, location, url):
     # write to db
+    conn = createConnection()
+    cursor = conn.cursor()
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(CREATE_SCRAPED_TABLE)
-            cursor.execute(INSERT_SCRAPED, (title, nature, description, location, url))
-        connection.commit()
+        cursor.execute(CREATE_SCRAPED_TABLE)
+        cursor.execute(INSERT_SCRAPED, (title, nature, description, location, url))
     except Exception as e:
         print(e)
 
@@ -108,12 +120,13 @@ def scrapedtoDatabase(title, nature, description, location, url):
 def getPreds():
     batch = 10
     offset = 0
+    conn = createConnection()
+    cursor = conn.cursor()
 
     while offset < 800:
         try:
-            with connection.cursor() as cursor:
-                query = f"SELECT * FROM scraped LIMIT {batch} OFFSET {offset}"
-                cursor.execute(query)
+            query = f"SELECT * FROM scraped LIMIT {batch} OFFSET {offset}"
+            cursor.execute(query)
 
             rows = cursor.fetchall()
 
@@ -126,6 +139,8 @@ def getPreds():
                 # print(offset)
         except Exception as e:
             print(e)
+        finally:
+            conn.close()
 
     return "Predictions complete", 201
 
@@ -162,22 +177,25 @@ def modelInference(rows):
 
 def addtoPreds(packet):
     # write to db
+    conn = createConnection()
+    cursor = conn.cursor()
+
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(CREATE_PREDICTED_TABLE)
-            cursor.execute(
-                INSERT_PREDICTED,
-                (
-                    packet["role"],
-                    packet["education"],
-                    packet["domain"],
-                    packet["skills"],
-                    packet["key"],
-                ),
-            )
-        connection.commit()
+        cursor.execute(CREATE_PREDICTED_TABLE)
+        cursor.execute(
+            INSERT_PREDICTED,
+            (
+                packet["role"],
+                packet["education"],
+                packet["domain"],
+                packet["skills"],
+                packet["key"],
+            ),
+        )
     except Exception as e:
         print(e)
+    finally:
+        conn.close()
 
     return
 
@@ -186,7 +204,10 @@ def addtoPreds(packet):
 def getDomainStats():
     stats = {}
 
-    with connection.cursor() as cursor:
+    conn = createConnection()
+    cursor = conn.cursor()
+
+    try:
         cursor.execute(FETCH_ALL_DOMAINS)
         domains = cursor.fetchall()
 
@@ -195,31 +216,90 @@ def getDomainStats():
                 f"""SELECT COUNT(*) AS domain_count FROM predicted WHERE domain = '{item[1]}'; """
             )
             stats[item[1]] = cursor.fetchall()[0][0]
-
-    return json.dumps(stats), 201
+    except Exception as e:
+        print(e)
+    finally:
+        conn.close()
+    return json.dumps(stats), 200
 
 
 @main.get("/getLocations")
 def getGeneralLocations():
-    with connection.cursor() as cursor:
+    conn = createConnection()
+    cursor = conn.cursor()
+
+    try:
         cursor.execute(FETCH_LOCATION_STATS)
         locations = cursor.fetchall()
+    except Exception as e:
+        print(e)
+    finally:
+        conn.close()
 
     return json.dumps(locations), 201
 
 
 @main.get("/getEducationLevel")
 def getGeneralEducation():
-    with connection.cursor() as cursor:
+    conn = createConnection()
+    cursor = conn.cursor()
+
+    try:
         cursor.execute(FETCH_EDUCATION_STATS)
         levels = cursor.fetchall()
+    except Exception as e:
+        print(e)
+    finally:
+        conn.close()
 
-    return json.dumps(levels[:6]), 201
+    return json.dumps(levels[:6]), 200
+
+
+@main.post("/getEducationLevelByDomain")
+def getDomainEducation():
+    domain = request.get_json(force=True)
+    domain = domain["domain"]
+
+    query = f"SELECT education_level, COUNT(*) AS ed_count FROM predicted WHERE domain = '{domain}' GROUP BY education_level ORDER BY ed_count DESC;"
+
+    conn = createConnection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(query)
+        levels = cursor.fetchall()
+    except Exception as e:
+        print(e)
+    finally:
+        conn.close()
+
+    return json.dumps(levels[:6]), 200
+
+
+@main.get("/getDomains")
+def getDomains():
+    query = "SELECT * FROM domains"
+
+    conn = createConnection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(query)
+        domains = cursor.fetchall()
+    except Exception as e:
+        print(e)
+    finally:
+        conn.close()
+
+    return json.dumps(domains)
 
 
 @main.get("/getGeneralSkills")
 def skillsAnalysis():
-    with connection.cursor() as cursor:
+    conn = createConnection()
+    cursor = conn.cursor()
+
+    try:
         cursor.execute(MOST_WANTED_SKILLS)
         skills = cursor.fetchall()
 
@@ -247,19 +327,27 @@ def skillsAnalysis():
             "skills_info": top_skills.to_dict(),
             "total_count": skills_counts["skill"].nunique(),
         }
+    except Exception as e:
+        print(e)
+    finally:
+        conn.close()
 
-    return json.dumps(data), 201
+    return json.dumps(data), 200
 
 
-@main.get("/skillsByDomain")
+@main.post("/skillsByDomain")
 def skillsPerDomain():
-    domain = request.get_json()
+    data = request.get_json()
+    # print(data)
 
-    print(domain)
+    domain = data.get("domain")
 
-    query = f"""SELECT skills FROM predicted WHERE domain = '{domain["domain"]}';"""
+    query = f"""SELECT skills FROM predicted WHERE domain = '{domain}';"""
 
-    with connection.cursor() as cursor:
+    conn = createConnection()
+    cursor = conn.cursor()
+
+    try:
         cursor.execute(query)
         skills = cursor.fetchall()
 
@@ -287,6 +375,10 @@ def skillsPerDomain():
             "skills_info": top_skills.to_dict(),
             "total_count": skills_counts["skill"].nunique(),
         }
+    except Exception as e:
+        print(e)
+    finally:
+        conn.close()
 
     return json.dumps(data), 201
 
@@ -312,15 +404,10 @@ FETCH_ALL_DOMAINS = "SELECT * FROM domains"
 
 # Data manipulation Queries
 
-FETCH_LOCATION_STATS = (
-    "SELECT location, COUNT(*) AS loc_count FROM scraped GROUP BY location;"
-)
-FETCH_EDUCATION_STATS = "SELECT education_level, COUNT(*) AS ed_count FROM predicted GROUP BY education_level ORDER BY ed_count DESC;"
+FETCH_LOCATION_STATS = "SELECT location, COUNT(*) AS loc_count FROM scraped GROUP BY location HAVING loc_count > 5;"
+FETCH_EDUCATION_STATS = "SELECT education_level, COUNT(*) AS ed_count FROM predicted GROUP BY education_level HAVING ed_count > 3 ORDER BY ed_count DESC;"
 
 FETCH_ROLES_STATS = "SELECT roles, COUNT(*) AS role_count FROM predicted GROUP BY role ORDER BY role DESC;"
 
 # fetch all skills from the predicted table
 MOST_WANTED_SKILLS = "SELECT skills FROM predicted"
-
-
-MOST_WANTED_SKILLS_BY_DOMAIN = "SELECT skills FROM predicted WHERE domain"
