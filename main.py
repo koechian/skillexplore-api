@@ -7,20 +7,12 @@ import ast
 import pandas as pd
 
 from .Classes.inference import Predictions
+from .Classes.Transformer import TransformerModel
 
 
 main = Blueprint("main", __name__)
 
 UPLOAD_FOLDER = "uploads"
-
-# Create connection to postgres
-# Connect to the database
-
-
-# @main.after_request
-# def add_cors_headers(response):
-#     response.headers.add("Access-Control-Allow-Origin", "http://localhost:1000")
-#     return response
 
 
 def createConnection():
@@ -292,6 +284,22 @@ def getDomains():
         conn.close()
 
     return json.dumps(domains)
+
+
+@main.post("/generate")
+def generate():
+    data = request.get_json()
+    details = data.get("description")
+
+    # Generate Cover Letter
+    model = TransformerModel()
+    generated_text = model.predict(details)
+
+    response = {"generated_text": generated_text}
+
+    # Clean the Uploads folder to remove any user data
+    cleaner()
+    return json.dumps(response)
 
 
 @main.get("/getGeneralSkills")
